@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,7 +22,7 @@ import (
 )
 
 // Repo is the GitHub repository releases are fetched from.
-const Repo = "yava-code/OnlyDrive"
+const Repo = "ibbmeintersos-sudo/OnlyDrive"
 
 // Release is one GitHub release worth of information selfupdate needs.
 type Release struct {
@@ -42,10 +43,13 @@ func AssetName(ui bool) string {
 	return name
 }
 
+// apiBase is a variable so tests can point at a local server.
+var apiBase = "https://api.github.com"
+
 // LatestRelease resolves the newest published release via the GitHub API
 // (an unauthenticated request, same as the installers use).
 func LatestRelease(ctx context.Context) (*Release, error) {
-	url := "https://api.github.com/repos/" + Repo + "/releases/latest"
+	url := apiBase + "/repos/" + Repo + "/releases/latest"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -60,78 +64,29 @@ func LatestRelease(ctx context.Context) (*Release, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GET %s: http %d", url, resp.StatusCode)
 	}
-	// A tiny hand roll keeps the dependency set at zero: only the two
-	// fields the updater needs are pulled out of the JSON.
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		return nil, err
+	var payload struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
 	}
-	rel := &Release{Assets: map[string]string{}}
-	rel.Tag = jsonField(string(body), "tag_name")
-	if rel.Tag == "" {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&payload); err != nil {
+		return nil, fmt.Errorf("parse release response: %w", err)
+	}
+	if payload.TagName == "" {
 		return nil, fmt.Errorf("release response has no tag_name")
 	}
-	for _, name := range jsonStrings(string(body), "name") {
-		// Asset names appear before their download URLs in each asset
-		// object; the browser_download_url follows the same order.
-		_ = name
-	}
-	for _, u := range jsonStrings(string(body), "browser_download_url") {
-		base := filepath.Base(u)
-		rel.Assets[base] = u
+	rel := &Release{Tag: payload.TagName, Assets: map[string]string{}}
+	for _, a := range payload.Assets {
+		if a.Name != "" && a.BrowserDownloadURL != "" {
+			rel.Assets[a.Name] = a.BrowserDownloadURL
+		}
 	}
 	if len(rel.Assets) == 0 {
 		return nil, fmt.Errorf("release %s lists no assets", rel.Tag)
 	}
 	return rel, nil
-}
-
-// jsonField extracts the value of a top-level string field, compact or
-// spaced.
-func jsonField(body, field string) string {
-	for _, key := range []string{
-		`"` + field + `":"`,
-		`"` + field + `": "`,
-	} {
-		i := strings.Index(body, key)
-		if i < 0 {
-			continue
-		}
-		rest := body[i+len(key):]
-		e := strings.IndexByte(rest, '"')
-		if e < 0 {
-			continue
-		}
-		return rest[:e]
-	}
-	return ""
-}
-
-// jsonStrings returns every string value filed under the given key, with
-// or without a space after the colon (GitHub uses the compact form). Good
-// enough for flat asset lists; not a general JSON parser.
-func jsonStrings(body, field string) []string {
-	var out []string
-	for _, key := range []string{
-		`"` + field + `":"`,
-		`"` + field + `": "`,
-	} {
-		i := 0
-		for {
-			j := strings.Index(body[i:], key)
-			if j < 0 {
-				break
-			}
-			start := i + j + len(key)
-			end := strings.IndexByte(body[start:], '"')
-			if end < 0 {
-				break
-			}
-			out = append(out, body[start:start+end])
-			i = start + end
-		}
-	}
-	return out
 }
 
 // Checksums fetches and parses the release checksums.txt into a map.

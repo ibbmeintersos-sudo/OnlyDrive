@@ -33,7 +33,7 @@ func unionSection(remotes []string) string {
 		"type = union\n" +
 		"upstreams = " + strings.Join(ups, " ") + "\n" +
 		"action_policy = epall\n" +
-		"create_policy = epall\n" +
+		"create_policy = epmfs\n" +
 		"search_policy = ff\n"
 }
 
@@ -92,13 +92,17 @@ func EnsureUnion() (string, error) {
 }
 
 // randKeys generates an access/secret key pair for S3 auth.
-func randKeys() (string, string) {
+func randKeys() (string, string, error) {
 	buf := make([]byte, 20)
-	_, _ = rand.Read(buf)
+	if _, err := rand.Read(buf); err != nil {
+		return "", "", err
+	}
 	acc := "gd" + hex.EncodeToString(buf[:6])
-	_, _ = rand.Read(buf)
+	if _, err := rand.Read(buf); err != nil {
+		return "", "", err
+	}
 	sec := hex.EncodeToString(buf)
-	return acc, sec
+	return acc, sec, nil
 }
 
 // pidFile is where serve stores the running serve process id.
@@ -211,6 +215,9 @@ func WebDAVStart(remote string, port int) (string, error) {
 		time.Sleep(300 * time.Millisecond)
 	}
 	if !ok {
+		killPID(cmd.Process.Pid)
+		_ = os.Remove(pf)
+		_ = os.Remove(mustAddrFile())
 		return "", fmt.Errorf("serve webdav did not become ready; log: %s", logf)
 	}
 	return "WebDAV on http://" + addr + " (remote " + remote + ")", nil
@@ -269,7 +276,10 @@ func S3Start(remote string, port int) (accessKey, secretKey string, msg string, 
 	if len(strings.Split(remote, ":")) < 2 {
 		remote += ":"
 	}
-	accessKey, secretKey = randKeys()
+	accessKey, secretKey, err = randKeys()
+	if err != nil {
+		return "", "", "", err
+	}
 	m, err := rclone.New()
 	if err != nil {
 		return "", "", "", err
@@ -283,12 +293,13 @@ func S3Start(remote string, port int) (accessKey, secretKey string, msg string, 
 	args := []string{
 		"serve", "s3", remote,
 		"--addr", addr,
-		"--auth-key", accessKey + "," + secretKey,
 		"--config", daemon.ConfPath(),
 		"--log-file", logf,
 		"--log-level", "INFO",
 	}
 	cmd := exec.Command(m.BinPath, args...)
+	// Keep S3 credentials out of the process command line.
+	cmd.Env = append(os.Environ(), "RCLONE_AUTH_KEY="+accessKey+","+secretKey)
 	cmd.SysProcAttr = detachAttr()
 	cmd.Dir = dir
 	if err := cmd.Start(); err != nil {
@@ -318,6 +329,9 @@ func S3Start(remote string, port int) (accessKey, secretKey string, msg string, 
 		time.Sleep(300 * time.Millisecond)
 	}
 	if !ok {
+		killPID(cmd.Process.Pid)
+		_ = os.Remove(pf)
+		_ = os.Remove(cf)
 		return "", "", "", fmt.Errorf("serve s3 did not become ready; log: %s", logf)
 	}
 	return accessKey, secretKey, "S3 API on http://" + addr + " (remote " + remote + ")", nil
@@ -440,7 +454,7 @@ func AutostartOn() (string, error) {
 		if err := os.MkdirAll(agents, 0o755); err != nil {
 			return "", err
 		}
-	plist := `<?xml version="1.0" encoding="UTF-8"?>
+		plist := `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>io.gd.autostart</string>

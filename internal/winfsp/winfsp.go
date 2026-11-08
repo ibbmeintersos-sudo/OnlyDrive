@@ -3,6 +3,8 @@ package winfsp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +19,9 @@ import (
 	"gd/internal/config"
 	"gd/internal/rclone"
 )
+
+// PinnedWinFspSHA256 is the SHA-256 of winfsp-2.1.25156.msi.
+const PinnedWinFspSHA256 = "073a70e00f77423e34bed98b86e600def93393ba5822204fac57a29324db9f7a"
 
 // msiURL returns the pinned WinFsp MSI download URL.
 func msiURL() string {
@@ -107,6 +112,12 @@ func Ensure(ctx context.Context) error {
 	if err := download(ctx, msiURL(), msiPath); err != nil {
 		return fmt.Errorf("download winfsp: %w", err)
 	}
+	if config.PinnedWinFspVersion == "2.1" {
+		if err := verifySHA256(msiPath, PinnedWinFspSHA256); err != nil {
+			_ = os.Remove(msiPath)
+			return fmt.Errorf("verify winfsp MSI: %w", err)
+		}
+	}
 	// msiexec returns 3010 when a reboot is required; both 0 and 3010 are success.
 	cmd := exec.CommandContext(ctx, "msiexec", "/i", msiPath, "/qn", "/norestart")
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
@@ -153,6 +164,23 @@ func download(ctx context.Context, url, dst string) error {
 	defer out.Close()
 	_, err = io.Copy(out, resp.Body)
 	return err
+}
+
+func verifySHA256(path, want string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(got, want) {
+		return fmt.Errorf("sha256 mismatch: got %s want %s", got, want)
+	}
+	return nil
 }
 
 func truncate(s string, n int) string {

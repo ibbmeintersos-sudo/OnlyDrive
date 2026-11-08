@@ -7,8 +7,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -70,14 +72,20 @@ func panelURL(port int) string {
 	return fmt.Sprintf("http://127.0.0.1:%d", port)
 }
 
-// panelAlive probes whether a webui already answers on the port.
+// panelAlive probes whether an OnlyDrive webui (not an unrelated listener)
+// answers on the port.
 func panelAlive(port int) bool {
-	c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 400*time.Millisecond)
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/healthz", port))
 	if err != nil {
 		return false
 	}
-	_ = c.Close()
-	return true
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return strings.Contains(string(body), `"app":"onlydrive"`)
 }
 
 // waitPanel blocks until the panel answers or the deadline passes.
@@ -116,7 +124,7 @@ func openPanel(port int) error {
 	if !panelAlive(port) {
 		go func() {
 			srv := webui.New(port)
-			if err := srv.Run(); err != nil {
+			if err := srv.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				fmt.Fprintln(os.Stderr, "panel:", err)
 			}
 		}()
@@ -185,7 +193,6 @@ func runPanel(port int) {
 	url := panelURL(port)
 	fmt.Println("OnlyDrive panel:", url, "(quit from the tray icon)")
 
-	trayReady := make(chan bool, 1)
 	go func() {
 		cb := callbacks(
 			func() string { return cachedStatus() },
@@ -197,14 +204,17 @@ func runPanel(port int) {
 			defer cancel()
 			_ = srv.Shutdown(ctx)
 		}
-		trayReady <- tray.Run(cb) == nil
+		if err := tray.Run(cb); err != nil {
+			fmt.Println("tray unavailable; the panel still runs (Ctrl+C to stop)")
+		}
 	}()
 
 	go func() {
-		// The tray gets a beat to come up; then the browser opens on a
-		// panel that is already serving.
-		if !<-trayReady {
-			fmt.Println("tray unavailable; the panel still runs (Ctrl+C to stop)")
+		// Open the browser only after the panel is actually serving, so the
+		// tab never lands on a connection error.
+		if !waitPanel(port, 5*time.Second) {
+			fmt.Println("panel did not come up; see the error above")
+			return
 		}
 		openBrowser(url)
 	}()
@@ -219,7 +229,7 @@ func runPanel(port int) {
 		defer cancel()
 		_ = srv.Shutdown(ctx)
 	}()
-	if err := srv.Run(); err != nil {
+	if err := srv.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -251,7 +261,7 @@ func runTray() {
 	// must never hit a dead port, and a second exe launch must find it.
 	srv := webui.New(webui.DefaultPort)
 	go func() {
-		if err := srv.Run(); err != nil {
+		if err := srv.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			fmt.Fprintln(os.Stderr, "panel:", err)
 		}
 	}()

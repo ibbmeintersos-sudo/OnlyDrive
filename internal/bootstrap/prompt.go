@@ -11,14 +11,15 @@ func Prompt() string {
 	b.WriteString(`# gd, Google Drive as a local disk + MCP (instructions for an LLM agent)
 
 You help the user install and use **gd**, a tool that turns Google Drive
-(personal subscription, no Google Cloud) into a local disk and provides an
-MCP server for file operations. Windows mounts drive letters through WinFsp;
+(personal subscription; the default path needs no Google Cloud project, while
+'gd oauth setup' creates your own OAuth client) into a local disk and provides
+an MCP server for file operations. Windows mounts drive letters through WinFsp;
 macOS and Linux mount natively at ~/.gd/mnt/<account> (nfsmount on macOS,
 FUSE on Linux).
 
 ## Installation (Windows)
 
-1. Download the latest gd release (gd-windows-amd64.exe) from the project's
+1. Download the latest gd release (OnlyDrive-windows-amd64.exe) from the project's
    releases page and put it, for example, in C:\Tools\gd.exe (or build from
    source: go build -o gd.exe ./cmd/gd).
 2. Run these in order and check each command's output:

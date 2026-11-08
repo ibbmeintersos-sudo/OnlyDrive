@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
@@ -144,6 +145,7 @@ func cmdRemove(rest []string) error {
 	if err != nil {
 		return err
 	}
+	daemon.UnmountAccount(cfg, rest[0])
 	remote, err := cfg.RemoveAccount(rest[0])
 	if err != nil {
 		return err
@@ -815,14 +817,33 @@ func cmdUI(rest []string) error {
 	url := fmt.Sprintf("http://127.0.0.1:%d", port)
 	fmt.Println("gd ui:", url, " (Ctrl+C to stop)")
 	if os.Getenv("GD_UI_TOKEN") != "" {
-		fmt.Println("access token: enabled (GD_UI_TOKEN)")
+		fmt.Println("access token: required (GD_UI_TOKEN override)")
 	} else {
-		fmt.Println("access token: not set (open only from this machine)")
+		fmt.Println("access token: required (stored in ~/.gd/ui-token)")
 	}
-	if openBrowser(url) {
-		fmt.Println("browser opened; if nothing happened, visit the URL above.")
-	}
-	return srv.Run()
+	stop := make(chan struct{})
+	go func() {
+		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		for i := 0; i < 50; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			c, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+			if err == nil {
+				_ = c.Close()
+				if openBrowser(url) {
+					fmt.Println("browser opened; if nothing happened, visit the URL above.")
+				}
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}()
+	err := srv.Run()
+	close(stop)
+	return err
 }
 
 // openBrowser is a minimal local helper for the ui command.

@@ -26,14 +26,31 @@ func passFile() (string, error) {
 	return filepath.Join(dir, "rcpass"), nil
 }
 
-// LoadOrCreatePass returns the stored RC password, generating one if needed.
-func LoadOrCreatePass() (string, error) {
+// LoadPass returns the stored RC password without creating one.
+func LoadPass() (string, error) {
 	p, err := passFile()
 	if err != nil {
 		return "", err
 	}
-	if data, err := os.ReadFile(p); err == nil && len(strings.TrimSpace(string(data))) >= 16 {
-		return strings.TrimSpace(string(data)), nil
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return "", err
+	}
+	pass := strings.TrimSpace(string(data))
+	if len(pass) < 16 {
+		return "", fmt.Errorf("rc password in %s is too short", p)
+	}
+	return pass, nil
+}
+
+// LoadOrCreatePass returns the stored RC password, generating one if needed.
+func LoadOrCreatePass() (string, error) {
+	if pass, err := LoadPass(); err == nil {
+		return pass, nil
+	}
+	p, err := passFile()
+	if err != nil {
+		return "", err
 	}
 	buf := make([]byte, 24)
 	if _, err := rand.Read(buf); err != nil {
@@ -61,6 +78,9 @@ func Start() (string, error) {
 	if !m.Installed() {
 		return "", fmt.Errorf("rclone is not installed yet; run: gd setup")
 	}
+	if existing, err := LoadPass(); err == nil {
+		m.SetAuth("gd", existing)
+	}
 	if m.RCAlive() {
 		return "already running", nil
 	}
@@ -76,12 +96,13 @@ func Start() (string, error) {
 	args := []string{
 		"rcd",
 		"--rc-addr", "127.0.0.1:" + strconv.Itoa(config.RcloneRCPort),
-		"--rc-user", "gd", "--rc-pass", pass,
 		"--config", rcloneConf,
 		"--log-file", logPath,
 		"--log-level", "INFO",
 	}
 	cmd := exec.Command(m.BinPath, args...)
+	// Keep the RC password out of the process command line.
+	cmd.Env = append(os.Environ(), "RCLONE_RC_USER=gd", "RCLONE_RC_PASS="+pass)
 	cmd.SysProcAttr = detachedSysProcAttr()
 	cmd.Dir = dir
 	if err := cmd.Start(); err != nil {
@@ -102,6 +123,8 @@ func Start() (string, error) {
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
+	killByPID(cmd.Process.Pid)
+	_ = os.Remove(pf)
 	return "", fmt.Errorf("rclone rcd did not become ready; log: %s", logPath)
 }
 
@@ -135,7 +158,7 @@ func Running() bool {
 	if err != nil {
 		return false
 	}
-	if pass, err := LoadOrCreatePass(); err == nil {
+	if pass, err := LoadPass(); err == nil {
 		m.SetAuth("gd", pass)
 	}
 	return m.RCAlive()
@@ -177,10 +200,12 @@ func EnsureMounted() ([]config.Mount, error) {
 			activePts[pt] = true
 		}
 	}
-	var live []config.Mount
-	for _, reg := range cfg.Mounts {
+	live := make([]config.Mount, 0, len(cfg.Mounts))
+	changed := false
+	for i := range cfg.Mounts {
+		reg := &cfg.Mounts[i]
 		if activePts[reg.Letter] {
-			live = append(live, reg)
+			live = append(live, *reg)
 			continue
 		}
 		// Keep the original target on the first remount; after that pick a
@@ -189,21 +214,45 @@ func EnsureMounted() ([]config.Mount, error) {
 		if target == "" || !config.IsDriveLetter(target) {
 			t, err := config.MountTarget(reg.Account)
 			if err != nil {
+				// Keep the registration so the next start can retry.
 				continue
 			}
 			target = t
 		}
 		if err := m.MountRemote(context.Background(), reg.Remote, target, reg.VolName); err != nil {
-			continue // leave registered; user can `gd mount` manually
+			// Keep the registration so the next start can retry.
+			continue
 		}
-		reg.Letter = target
-		live = append(live, reg)
+		if reg.Letter != target {
+			reg.Letter = target
+			changed = true
+		}
+		live = append(live, *reg)
 	}
-	if len(live) != len(cfg.Mounts) {
-		cfg.Mounts = live
+	if changed {
 		_ = cfg.Save()
 	}
 	return live, nil
+}
+
+// UnmountAccount unmounts every active mount registered for an account.
+func UnmountAccount(cfg *config.Config, account string) {
+	m, err := rclone.New()
+	if err != nil {
+		return
+	}
+	pass, err := LoadPass()
+	if err != nil {
+		return
+	}
+	m.SetAuth("gd", pass)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, mm := range cfg.Mounts {
+		if strings.EqualFold(mm.Account, account) && mm.Letter != "" {
+			_ = m.UnmountRemote(ctx, mm.Letter)
+		}
+	}
 }
 
 // ConfPath returns the rclone.conf path (used by serve and setup).

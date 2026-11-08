@@ -4,8 +4,7 @@
 </div>
 
 OnlyDrive is a single exe (the command is `gd`) that turns Google Drive (a
-regular Google One or Workspace subscription, **no Google Cloud and no API
-keys**) into:
+regular Google One or Workspace subscription) into:
 
 1. **A local disk**: on Windows, Drive folders show up in Explorer as `GDrive-acc1 (X:)`; on macOS and Linux, `gd mount acc1` mounts the account natively at `~/.gd/mnt/acc1` (rclone nfsmount on macOS, no macFUSE needed; the FUSE backend on Linux, where nfsmount would need root)
 2. **An MCP server**: Claude Desktop, Cursor, Claude Code, Windsurf and VS Code work with the disk through the `gd_*` tools
@@ -17,11 +16,11 @@ You never see or configure rclone.
 ## Install: one command, then the wizard walks you through
 
 ```powershell
-irm https://raw.githubusercontent.com/yava-code/OnlyDrive/main/install/install.ps1 | iex
+irm https://raw.githubusercontent.com/ibbmeintersos-sudo/OnlyDrive/main/install/install.ps1 | iex
 ```
 macOS/Linux:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yava-code/OnlyDrive/main/install/macos.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ibbmeintersos-sudo/OnlyDrive/main/install/macos.sh | bash
 ```
 
 The installer downloads the exe, adds it to PATH and starts the **wizard**:
@@ -37,7 +36,7 @@ arguments: `go build -o gd.exe ./cmd/gd && gd`. That starts the same wizard.
 
 ```bat
 gd setup        :: downloads rclone, installs WinFsp (1 UAC click), checks the environment
-gd add          :: sign in to a Google account through the browser (OAuth, no keys)
+gd add          :: sign in to a Google account through the browser (OAuth; no keys in gd's config)
 gd daemon start :: background service
 gd mount        :: the disk appears in Explorer
 gd mcp install claude-desktop   :: or cursor / claude-code / windsurf / vscode
@@ -56,7 +55,8 @@ gd ui --port 8080
 gd-ui.exe       :: same panel, opens the browser itself
 ```
 
-The panel is a single local page, no external assets. It can:
+The panel is a single local page, no external assets. API calls require the
+per-user token in `~/.gd/ui-token`; set `GD_UI_TOKEN` to override it. It can:
 
 - show each account with its quota, plus mount/unmount and remove buttons
 - add another Google account (runs the same browser OAuth flow as `gd add`)
@@ -132,9 +132,14 @@ with it by hand.
 Run `gd add` once per account, or let the wizard ask how many to connect.
 Each account becomes `acc1`, `acc2`, and so on, and all of them mount at
 once (letters are picked automatically). `gd serve union` folds every
-account into one storage pool: a file lands on the drive that has room.
-With a single account the pool repeats that one upstream, because rclone's
-union rejects a lone upstream.
+account into one storage pool. New files go to the upstream with the most
+free space (`create_policy = epmfs`); deletes and renames apply to every
+upstream (`action_policy = epall`). With a single account the pool repeats
+that one upstream, because rclone's union rejects a lone upstream.
+
+The default OAuth path uses rclone's shared client and needs no Google Cloud
+project. `gd oauth setup` is optional: it creates your own OAuth client in a
+Google Cloud project (needed after rclone retires the shared client in 2026).
 
 ## WebDAV: mounting the pool on macOS and Linux
 
@@ -142,7 +147,8 @@ union rejects a lone upstream.
 gd serve webdav            :: WebDAV on 127.0.0.1:9864 over the union pool
 ```
 
-Then mount with the OS client:
+The endpoint binds to `127.0.0.1` and has no authentication; do not expose
+the port to a network. Then mount with the OS client:
 
 ```bash
 # macOS

@@ -143,6 +143,7 @@ func removeAccount(account string) error {
 	if err != nil {
 		return err
 	}
+	daemon.UnmountAccount(cfg, account)
 	remote, err := cfg.RemoveAccount(account)
 	if err != nil {
 		return err

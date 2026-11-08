@@ -14,6 +14,6 @@ func windowsProcAlive(pid int) bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(string(out)), "rclone") ||
-		strings.Contains(string(out), strconv.Itoa(pid))
+	text := strings.ToLower(string(out))
+	return strings.Contains(text, "rclone") && strings.Contains(text, strconv.Itoa(pid))
 }

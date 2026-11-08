@@ -12,7 +12,7 @@
 # body is still goreleaser's auto changelog.
 set -euo pipefail
 
-REPO="yava-code/OnlyDrive"
+REPO="ibbmeintersos-sudo/OnlyDrive"
 BRANCH="main"
 API="https://api.github.com/repos/$REPO"
 

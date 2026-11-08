@@ -1,11 +1,11 @@
 package webui
 
 // indexHTML is the single-page control panel. Plain HTML/JS, no build step;
-// fonts load from Google Fonts, the logo is embedded in the binary.
+// all assets are local, including the embedded logo.
 //
 // Design direction: "editorial tech journal" from the user's DESIGN.md
-// (antislop R-37): light warm canvas, hairline borders, JetBrains Mono for
-// numbers and labels, Inter for UI text, one ink-black accent for primary
+// (antislop R-37): light warm canvas, hairline borders, system monospace for
+// numbers and labels, system UI text, one ink-black accent for primary
 // actions and quota bars. Dials ENERGY 1 / RHYTHM 2 / MOTION 1: staggered
 // entrance on load, LED pulse on the running state, everything else calm.
 // Reasons (R-31): warm off-white canvas reads as paper for an editorial
@@ -15,6 +15,7 @@ package webui
 // versionPlaceholder inside indexHTML is replaced by version.String() at
 // serve time (see indexHTMLBytes in server.go).
 const versionPlaceholder = "__GD_VERSION__"
+const tokenPlaceholder = "__GD_TOKEN__"
 
 const indexHTML = `<!doctype html>
 <html lang="en">
@@ -22,9 +23,6 @@ const indexHTML = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OnlyDrive control panel</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
     --canvas: #fafafa;
@@ -47,10 +45,10 @@ const indexHTML = `<!doctype html>
   body {
     background: var(--canvas);
     color: var(--ink);
-    font: 14px/1.5 Inter, system-ui, "Segoe UI", sans-serif;
+    font: 14px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, monospace; }
+  .mono { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; }
 
   /* Header: sticky, hairline, logo + verdict + refresh */
   header {
@@ -67,7 +65,7 @@ const indexHTML = `<!doctype html>
   .slash { color: var(--faint); font-weight: 300; }
   .brand-sub { font-size: 13px; font-weight: 500; letter-spacing: -0.01em; }
   .spacer { flex: 1; }
-  #verdict { font-family: "JetBrains Mono", monospace; font-size: 12px; }
+  #verdict { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; }
   .led {
     width: 7px; height: 7px; border-radius: 50%;
     display: inline-block; margin-right: 6px; vertical-align: 1px;
@@ -95,7 +93,7 @@ const indexHTML = `<!doctype html>
   button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   button:disabled { opacity: .55; cursor: wait; }
   .btn {
-    font-family: "JetBrains Mono", monospace; font-size: 12px; font-weight: 500;
+    font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; font-weight: 500;
     padding: 7px 12px; border: 1px solid var(--hairline);
     background: var(--surface); color: var(--ink-soft); min-height: 36px;
   }
@@ -128,7 +126,7 @@ const indexHTML = `<!doctype html>
   /* Accounts table */
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   thead th {
-    font-family: "JetBrains Mono", monospace; font-size: 11px; font-weight: 500;
+    font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 11px; font-weight: 500;
     color: var(--muted); text-transform: uppercase; letter-spacing: .04em;
     text-align: left; padding: 10px 16px; background: #fbfbfb;
     border-bottom: 1px solid var(--hairline-soft);
@@ -136,7 +134,7 @@ const indexHTML = `<!doctype html>
   tbody td { padding: 12px 16px; border-bottom: 1px solid var(--hairline-soft); }
   tbody tr:last-child td { border-bottom: 0; }
   tbody tr:hover { background: #fafafa; }
-  td.mono, .mono-td { font-family: "JetBrains Mono", monospace; font-size: 12px; }
+  td.mono, .mono-td { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; }
   .acc-name { font-weight: 500; }
   .mount-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 8px; vertical-align: 1px; }
   .on { background: var(--ok); }
@@ -153,10 +151,10 @@ const indexHTML = `<!doctype html>
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 700px) { .grid2 { grid-template-columns: 1fr; } }
   .svc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-  .svc-sub { font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .svc-sub { font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; color: var(--muted); margin-top: 2px; }
   .badge {
     display: inline-flex; align-items: center; gap: 6px;
-    font-family: "JetBrains Mono", monospace; font-size: 11px; font-weight: 500;
+    font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 11px; font-weight: 500;
     padding: 3px 9px; border: 1px solid var(--hairline); border-radius: 999px;
     background: #fafafa; color: var(--muted);
   }
@@ -168,7 +166,7 @@ const indexHTML = `<!doctype html>
   /* Maintenance row */
   .seg { display: inline-flex; padding: 2px; background: #f5f5f5; border: 1px solid var(--hairline); border-radius: 6px; }
   .seg button {
-    font-family: "JetBrains Mono", monospace; font-size: 12px; font-weight: 500;
+    font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; font-weight: 500;
     padding: 6px 12px; border: 0; background: transparent; color: var(--muted); border-radius: 5px;
   }
   .seg button.active { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
@@ -179,20 +177,20 @@ const indexHTML = `<!doctype html>
   #doctor-panel.open { display: block; }
   .doctor-head {
     display: flex; justify-content: space-between; align-items: center;
-    font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--faint); margin-bottom: 8px;
+    font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 11px; color: var(--faint); margin-bottom: 8px;
   }
   .doctor-head button { border: 0; background: none; color: var(--faint); font: inherit; padding: 2px 6px; border-radius: 4px; }
   .doctor-head button:hover { color: var(--ink); background: #f0f0f0; }
   #doctor-output {
     margin: 0; padding: 14px; border: 1px solid var(--hairline-soft); border-radius: 6px;
-    background: #fbfbfb; font-family: "JetBrains Mono", monospace; font-size: 11.5px;
+    background: #fbfbfb; font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 11.5px;
     line-height: 1.7; color: #262626; max-height: 220px; overflow-y: auto; white-space: pre-wrap;
   }
   #doctor-output .ok-line { color: var(--ok-ink); }
   #doctor-output .bad-line { color: var(--danger); }
 
   /* Status line + toasts */
-  #status { min-height: 20px; margin: -18px 0 0; font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--muted); }
+  #status { min-height: 20px; margin: -18px 0 0; font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; color: var(--muted); }
   #status.error { color: var(--danger); }
   #status:empty { display: none; }
   #toasts { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 60; }
@@ -200,7 +198,7 @@ const indexHTML = `<!doctype html>
     display: flex; align-items: center; gap: 8px;
     background: #fff; border: 1px solid var(--hairline); border-radius: 8px;
     box-shadow: 0 4px 16px rgba(0,0,0,.06); padding: 10px 14px;
-    font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--ink);
+    font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; color: var(--ink);
     opacity: 0; transform: translateY(8px); transition: all .2s;
   }
   .toast.show { opacity: 1; transform: none; }
@@ -210,21 +208,21 @@ const indexHTML = `<!doctype html>
     display: flex; align-items: center; gap: 10px;
     border: 1px solid var(--hairline); background: var(--surface);
     border-radius: 8px; padding: 12px 16px;
-    font-family: "JetBrains Mono", monospace; font-size: 12px; color: var(--muted);
+    font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; color: var(--muted);
   }
   .footnote b { color: var(--ink); font-weight: 500; }
   footer {
     border-top: 1px solid var(--hairline); margin-top: 40px; background: var(--surface);
   }
-  footer .bar { height: 48px; font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--faint); }
+  footer .bar { height: 48px; font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 11px; color: var(--faint); }
 
-  .empty { color: var(--muted); padding: 16px; font-family: "JetBrains Mono", monospace; font-size: 12px; }
+  .empty { color: var(--muted); padding: 16px; font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; }
 
   /* Language toggle: same segmented shape as autostart, compact for the bar */
   .lang-seg { display: inline-flex; border: 1px solid var(--hairline); border-radius: 6px; overflow: hidden; }
   .lang-seg button {
     border: 0; background: var(--surface); cursor: pointer;
-    font: 500 11px "JetBrains Mono", monospace; letter-spacing: .04em;
+    font: 500 11px ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; letter-spacing: .04em;
     color: var(--muted); padding: 7px 10px; min-height: 30px;
   }
   .lang-seg button + button { border-left: 1px solid var(--hairline); }
@@ -350,7 +348,7 @@ const indexHTML = `<!doctype html>
 
   <div class="footnote enter d3">
     <span>lock</span>
-    <p style="margin:0" data-i18n="lock_note">gd ui listens on <b>127.0.0.1</b> only. Set <b>GD_UI_TOKEN</b> to require an access token.</p>
+    <p style="margin:0" data-i18n="lock_note">gd ui listens on <b>127.0.0.1</b> only and requires a per-user token stored in <b>~/.gd/ui-token</b>. Set <b>GD_UI_TOKEN</b> to override it.</p>
   </div>
 </main>
 
@@ -367,6 +365,7 @@ const indexHTML = `<!doctype html>
 <script>
 "use strict";
 (function () {
+  var GD_TOKEN = "__GD_TOKEN__";
   var status = document.getElementById("status");
 
   // ---- i18n: EN/RU, choice in localStorage, first visit follows the browser
@@ -379,7 +378,7 @@ const indexHTML = `<!doctype html>
       dav_sub: "127.0.0.1:9864 · mount on macOS/Linux",
       maintenance: "Maintenance", autostart_on: "Autostart on", autostart_off: "Autostart off",
       run_doctor: "Run doctor", run_doctor_fix: "Run doctor (fix)", diagnostics: "diagnostics",
-      dismiss: "dismiss [x]", lock_note: 'gd ui listens on <b>127.0.0.1</b> only. Set <b>GD_UI_TOKEN</b> to require an access token.',
+      dismiss: "dismiss [x]", lock_note: 'gd ui listens on <b>127.0.0.1</b> only and requires a per-user token stored in <b>~/.gd/ui-token</b>. Set <b>GD_UI_TOKEN</b> to override it.',
       connecting: "connecting",
       working: "working…", done: "done", offline: "offline",
       daemon_running: "daemon running", daemon_stopped: "daemon stopped",
@@ -404,7 +403,7 @@ const indexHTML = `<!doctype html>
       dav_sub: "127.0.0.1:9864 · диск на macOS/Linux",
       maintenance: "Обслуживание", autostart_on: "Автозапуск вкл", autostart_off: "Автозапуск выкл",
       run_doctor: "Проверка", run_doctor_fix: "Проверка (исправить)", diagnostics: "диагностика",
-      dismiss: "скрыть [x]", lock_note: 'gd ui слушает только <b>127.0.0.1</b>. Задайте <b>GD_UI_TOKEN</b>, чтобы требовать токен доступа.',
+      dismiss: "скрыть [x]", lock_note: 'gd ui слушает только <b>127.0.0.1</b> и требует пользовательский токен из <b>~/.gd/ui-token</b>. Задайте <b>GD_UI_TOKEN</b>, чтобы переопределить его.',
       connecting: "соединяем…",
       working: "работаем…", done: "готово", offline: "нет связи",
       daemon_running: "демон работает", daemon_stopped: "демон остановлен",
@@ -488,7 +487,7 @@ const indexHTML = `<!doctype html>
   function post(path, body) {
     return fetch(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-GD-Token": GD_TOKEN },
       body: JSON.stringify(body || {})
     }).then(function (res) {
       return res.json().then(function (data) {
@@ -506,7 +505,7 @@ const indexHTML = `<!doctype html>
 
   function refresh(keepStatus) {
     if (!keepStatus) setBusy("loading…");
-    fetch("/api/state")
+    fetch("/api/state", { headers: { "X-GD-Token": GD_TOKEN } })
       .then(function (res) {
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.json();

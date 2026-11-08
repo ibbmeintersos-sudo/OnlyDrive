@@ -30,7 +30,7 @@ func TestAssetName(t *testing.T) {
 
 func TestChecksumsParsing(t *testing.T) {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api.github.com/repos/yava-code/OnlyDrive/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api.github.com/repos/ibbmeintersos-sudo/OnlyDrive/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"tag_name":"v9.9.9","assets":[{"name":"OnlyDrive-windows-amd64.exe","browser_download_url":"http://x/OnlyDrive-windows-amd64.exe"},{"name":"checksums.txt","browser_download_url":"http://x/checksums.txt"}]}`))
 	})
 	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
@@ -54,16 +54,26 @@ func TestChecksumsParsing(t *testing.T) {
 	}
 }
 
-func TestJSONField(t *testing.T) {
-	if got := jsonField(`{"tag_name":"v1.2.3","x":1}`, "tag_name"); got != "v1.2.3" {
-		t.Fatalf("jsonField = %q", got)
+func TestLatestReleaseParsing(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/repos/"+Repo+"/releases/latest", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"tag_name":"v1.2.3","assets":[{"name":"OnlyDrive-windows-amd64.exe","browser_download_url":"http://x/a"},{"name":"checksums.txt","browser_download_url":"http://x/c"}]}`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	old := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = old }()
+
+	rel, err := LatestRelease(context.Background())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := jsonField(`{}`, "tag_name"); got != "" {
-		t.Fatalf("missing field = %q", got)
+	if rel.Tag != "v1.2.3" {
+		t.Fatalf("tag = %q", rel.Tag)
 	}
-	urls := jsonStrings(`{"assets":[{"name":"a","browser_download_url":"http://x/a"},{"browser_download_url":"http://x/b"}]}`, "browser_download_url")
-	if len(urls) != 2 || urls[0] != "http://x/a" || urls[1] != "http://x/b" {
-		t.Fatalf("jsonStrings = %v", urls)
+	if rel.Assets["OnlyDrive-windows-amd64.exe"] != "http://x/a" {
+		t.Fatalf("assets = %v", rel.Assets)
 	}
 }
 

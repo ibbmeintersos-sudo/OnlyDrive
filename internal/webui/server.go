@@ -1,15 +1,20 @@
 // Package webui serves the gd control panel: a single-page dashboard over the
 // existing CLI internals (config, daemon, serve, doctor). Localhost-only by
-// design; an optional access token can be required via GD_UI_TOKEN.
+// design; API calls require a per-user token (GD_UI_TOKEN overrides it).
 package webui
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,14 +34,71 @@ const DefaultPort = 5590
 // Server is the gd control panel HTTP server.
 type Server struct {
 	Port     int
-	Token    string // optional; when set, every request must present it
+	Token    string // required for /api/*; GD_UI_TOKEN or ~/.gd/ui-token
 	srv      *http.Server
 	actionMu sync.Mutex // serializes mutating actions (add/mount/daemon/...)
 }
 
-// New builds a Server reading the access token from GD_UI_TOKEN (optional).
+// New builds a Server with an access token. GD_UI_TOKEN overrides the token;
+// otherwise a per-user token is generated once and stored in ~/.gd/ui-token.
 func New(port int) *Server {
-	return &Server{Port: port, Token: os.Getenv("GD_UI_TOKEN")}
+	token := strings.TrimSpace(os.Getenv("GD_UI_TOKEN"))
+	if token == "" {
+		token = loadOrCreateToken()
+	}
+	return &Server{Port: port, Token: token}
+}
+
+// tokenFile returns the path of the generated UI token.
+func tokenFile() (string, error) {
+	dir, _, _, _, err := config.Paths()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "ui-token"), nil
+}
+
+// loadOrCreateToken returns a stable token. If the file cannot be used, it
+// falls back to an in-memory token so the API is never left unprotected.
+func loadOrCreateToken() string {
+	p, err := tokenFile()
+	if err == nil {
+		if data, err := os.ReadFile(p); err == nil {
+			if token := strings.TrimSpace(string(data)); len(token) >= 16 {
+				return token
+			}
+		}
+	}
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		return ""
+	}
+	token := hex.EncodeToString(buf)
+	if p != "" {
+		_ = os.WriteFile(p, []byte(token), 0o600)
+	}
+	return token
+}
+
+// hostAllowed accepts only loopback host names. This blocks DNS rebinding.
+func hostAllowed(host string) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
+// originAllowed accepts an absent Origin, or one whose host is loopback.
+func originAllowed(origin string) bool {
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return hostAllowed(u.Host)
 }
 
 // actionOK is the JSON body for successful actions.
@@ -57,12 +119,32 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// authMiddleware enforces the optional token gate.
+// authMiddleware validates the loopback Host, enforces JSON POSTs, and gates
+// API routes with the UI token. The dashboard itself is unauthenticated so the
+// token can be delivered to the page; API calls from that page carry it.
 func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.Token != "" && r.Header.Get("X-GD-Token") != s.Token {
-			writeJSON(w, http.StatusUnauthorized, actionErr{Error: "unauthorized: set X-GD-Token header"})
+		if !hostAllowed(r.Host) {
+			writeJSON(w, http.StatusForbidden, actionErr{Error: "forbidden host"})
 			return
+		}
+		if r.Method == http.MethodPost {
+			if !originAllowed(r.Header.Get("Origin")) {
+				writeJSON(w, http.StatusForbidden, actionErr{Error: "forbidden origin"})
+				return
+			}
+			if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+				writeJSON(w, http.StatusUnsupportedMediaType, actionErr{Error: "Content-Type must be application/json"})
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			token := r.Header.Get("X-GD-Token")
+			if s.Token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(s.Token)) != 1 {
+				writeJSON(w, http.StatusUnauthorized, actionErr{Error: "unauthorized: missing or invalid X-GD-Token"})
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -71,6 +153,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 // Handler builds the full HTTP handler (exported for tests).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /api/state", s.handleState)
 	mux.HandleFunc("POST /api/add", s.action(s.handleAdd))
 	mux.HandleFunc("POST /api/mount", s.action(s.handleMount))
@@ -108,11 +191,25 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.srv.Shutdown(ctx)
 }
 
-// indexHTMLBytes returns the dashboard HTML with the version placeholder
-// replaced by version.String(), so the footer always shows the release this
-// binary was built from and never drifts from internal/version.
-func indexHTMLBytes() []byte {
-	return []byte(strings.ReplaceAll(indexHTML, versionPlaceholder, version.String()))
+// indexHTMLBytes returns the dashboard HTML with the version and token
+// placeholders replaced.
+func indexHTMLBytes(token string) []byte {
+	page := strings.ReplaceAll(indexHTML, versionPlaceholder, version.String())
+	// JSON-encode the token so quotes or HTML metacharacters cannot break out
+	// of the JavaScript string literal.
+	if quoted, err := json.Marshal(token); err == nil {
+		page = strings.ReplaceAll(page, `"`+tokenPlaceholder+`"`, string(quoted))
+	}
+	return []byte(page)
+}
+
+// handleHealthz is an unauthenticated identity probe for gd-ui and scripts.
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{
+		"ok":      "true",
+		"app":     "onlydrive",
+		"version": version.String(),
+	})
 }
 
 // handleIndex serves the single-page dashboard. Registered as catch-all, so
@@ -146,14 +243,19 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(indexHTMLBytes())
+	_, _ = w.Write(indexHTMLBytes(s.Token))
 }
 
-// action wraps a mutating handler with auth and panic-safety.
+// action wraps a mutating handler with serialization and panic-safety.
 func (s *Server) action(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.actionMu.Lock()
 		defer s.actionMu.Unlock()
+		defer func() {
+			if rec := recover(); rec != nil {
+				writeJSON(w, http.StatusInternalServerError, actionErr{Error: fmt.Sprintf("internal error: %v", rec)})
+			}
+		}()
 		h(w, r)
 	}
 }
@@ -171,11 +273,9 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		Mounts:        make([]config.Mount, 0, len(cfg.Mounts)),
 		S3Running:     false,
 	}
-	s3Running, s3Key, s3Secret, s3Addr := serve.S3Status()
+	s3Running, _, _, s3Addr := serve.S3Status()
 	st.S3Running = s3Running
 	st.S3Addr = s3Addr
-	st.S3AccessKey = s3Key
-	st.S3SecretKey = s3Secret
 	st.WebDAVRunning, st.WebDAVAddr = serve.WebDAVStatus()
 
 	// OAuth client status for the accounts card: which client mints and
@@ -234,8 +334,6 @@ type statePayload struct {
 	OAuth         oauthView      `json:"oauth"`
 	S3Running     bool           `json:"s3_running"`
 	S3Addr        string         `json:"s3_addr,omitempty"`
-	S3AccessKey   string         `json:"s3_access_key,omitempty"`
-	S3SecretKey   string         `json:"s3_secret_key,omitempty"`
 	WebDAVRunning bool           `json:"webdav_running"`
 	WebDAVAddr    string         `json:"webdav_addr,omitempty"`
 }
@@ -261,7 +359,7 @@ func manager() (*rclone.Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	pass, err := daemon.LoadOrCreatePass()
+	pass, err := daemon.LoadPass()
 	if err != nil {
 		return nil, err
 	}

@@ -12,10 +12,10 @@ import (
 
 // Client describes one supported MCP client app.
 type Client struct {
-	Key         string // gd add-mcp key
-	Name        string // human name
-	ConfigPath  func() (string, error)
-	Format      string // "claude-desktop" | "vscode"
+	Key        string // gd add-mcp key
+	Name       string // human name
+	ConfigPath func() (string, error)
+	Format     string // "claude-desktop" | "vscode"
 }
 
 // SelfPath is the absolute path of the running gd executable.
@@ -126,7 +126,7 @@ func Install(c *Client) error {
 	raw, err := os.ReadFile(path)
 	cfg := map[string]any{}
 	if err == nil && len(strings.TrimSpace(string(raw))) > 0 {
-		// strip VS Code JSONC comments crudely (only full-line // comments)
+		// strip VS Code JSONC comments and trailing commas
 		text := stripJSONC(string(raw))
 		if err := json.Unmarshal([]byte(text), &cfg); err != nil {
 			return fmt.Errorf("%s: parse existing %s: %w (fix the file manually and retry)", c.Name, path, err)
@@ -154,13 +154,19 @@ func Install(c *Client) error {
 	if err != nil {
 		return err
 	}
+	if len(raw) > 0 {
+		if err := os.WriteFile(path+".bak", raw, 0o600); err != nil {
+			return fmt.Errorf("backup %s: %w", path, err)
+		}
+	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return err
 	}
 	return nil
 }
 
-// stripJSONC removes // line comments outside strings (best-effort for VS Code settings).
+// stripJSONC removes // and /* */ comments plus trailing commas outside
+// strings. It is a compatibility shim for VS Code's JSONC settings.
 func stripJSONC(s string) string {
 	var b strings.Builder
 	inStr := false
@@ -189,9 +195,51 @@ func stripJSONC(s string) string {
 			if i < len(s) {
 				b.WriteByte('\n')
 			}
+		case ch == '/' && i+1 < len(s) && s[i+1] == '*':
+			i += 2
+			for i+1 < len(s) && !(s[i] == '*' && s[i+1] == '/') {
+				i++
+			}
+			i++
 		default:
 			b.WriteByte(ch)
 		}
+	}
+	return removeTrailingCommas(b.String())
+}
+
+func removeTrailingCommas(s string) string {
+	var b strings.Builder
+	inStr := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inStr {
+			b.WriteByte(ch)
+			if ch == '\\' && i+1 < len(s) {
+				i++
+				b.WriteByte(s[i])
+				continue
+			}
+			if ch == '"' {
+				inStr = false
+			}
+			continue
+		}
+		if ch == '"' {
+			inStr = true
+			b.WriteByte(ch)
+			continue
+		}
+		if ch == ',' {
+			j := i + 1
+			for j < len(s) && (s[j] == ' ' || s[j] == '\t' || s[j] == '\r' || s[j] == '\n') {
+				j++
+			}
+			if j < len(s) && (s[j] == '}' || s[j] == ']') {
+				continue
+			}
+		}
+		b.WriteByte(ch)
 	}
 	return b.String()
 }

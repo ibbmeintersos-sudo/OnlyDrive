@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -16,12 +15,34 @@ import (
 func testServer(t *testing.T, token string) *Server {
 	t.Helper()
 	t.Setenv("GD_HOME", t.TempDir())
-	if token != "" {
-		t.Setenv("GD_UI_TOKEN", token)
-	} else {
-		os.Unsetenv("GD_UI_TOKEN")
+	if token == "" {
+		token = "test-token"
 	}
+	t.Setenv("GD_UI_TOKEN", token)
 	return New(DefaultPort)
+}
+
+func authGet(t *testing.T, s *Server, url string) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("X-GD-Token", s.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
+
+func authPost(t *testing.T, s *Server, url, body string) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest("POST", url, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GD-Token", s.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
 }
 
 func TestStateEndpointEmpty(t *testing.T) {
@@ -29,10 +50,7 @@ func TestStateEndpointEmpty(t *testing.T) {
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/api/state")
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := authGet(t, s, srv.URL+"/api/state")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("state: got HTTP %d", resp.StatusCode)
@@ -67,10 +85,7 @@ func TestStateOAuthOwnClient(t *testing.T) {
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/api/state")
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := authGet(t, s, srv.URL+"/api/state")
 	defer resp.Body.Close()
 	var st statePayload
 	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
@@ -233,37 +248,25 @@ func TestActionValidation(t *testing.T) {
 	defer srv.Close()
 
 	// daemon with invalid action must 400
-	resp, err := http.Post(srv.URL+"/api/daemon", "application/json", strings.NewReader(`{"action":"explode"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := authPost(t, s, srv.URL+"/api/daemon", `{"action":"explode"}`)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("daemon bad action: expected 400, got %d", resp.StatusCode)
 	}
 	// autostart with invalid action must 400
-	resp2, err := http.Post(srv.URL+"/api/autostart", "application/json", strings.NewReader(`{"action":"maybe"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp2 := authPost(t, s, srv.URL+"/api/autostart", `{"action":"maybe"}`)
 	resp2.Body.Close()
 	if resp2.StatusCode != http.StatusBadRequest {
 		t.Fatalf("autostart bad action: expected 400, got %d", resp2.StatusCode)
 	}
 	// remove with unknown account must 400
-	resp3, err := http.Post(srv.URL+"/api/remove", "application/json", strings.NewReader(`{"account":"ghost"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp3 := authPost(t, s, srv.URL+"/api/remove", `{"account":"ghost"}`)
 	resp3.Body.Close()
 	if resp3.StatusCode != http.StatusBadRequest {
 		t.Fatalf("remove unknown account: expected 400, got %d", resp3.StatusCode)
 	}
 	// mount with no accounts must 400
-	resp4, err := http.Post(srv.URL+"/api/mount", "application/json", strings.NewReader(`{}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp4 := authPost(t, s, srv.URL+"/api/mount", `{}`)
 	resp4.Body.Close()
 	if resp4.StatusCode != http.StatusBadRequest {
 		t.Fatalf("mount with no accounts: expected 400, got %d", resp4.StatusCode)
@@ -275,10 +278,7 @@ func TestMethodWrongVerb(t *testing.T) {
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 	// POST to a GET-only route: must be rejected, not swallowed by catch-all.
-	resp, err := http.Post(srv.URL+"/api/state", "application/json", strings.NewReader(`{}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp := authPost(t, s, srv.URL+"/api/state", `{}`)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405 for POST /api/state, got %d", resp.StatusCode)

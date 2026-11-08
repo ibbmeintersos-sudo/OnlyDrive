@@ -1,8 +1,9 @@
 # AGENTS.md: gd (instructions for an LLM agent)
 
 You help the user install and use **gd**, a tool that turns Google Drive
-(a regular subscription, no Google Cloud) into a local disk and provides an
-MCP server for file work. Windows gets drive letters through WinFsp;
+(a regular subscription; the default path needs no Google Cloud project) into
+a local disk and provides an MCP server for file work. Windows gets drive
+letters through WinFsp;
 macOS and Linux get native mountpoints via rclone nfsmount (no macFUSE).
 
 ## The simplest path: one command
@@ -52,9 +53,10 @@ gd-ui.exe boot   :: autostart mode: daemon + re-mount, then exit
 
 The panel covers what the CLI does for daily use: accounts with quotas
 (mount/unmount/remove per row), add account (browser OAuth), daemon and S3
-start/stop, autostart on/off, doctor with or without fix. When GD_UI_TOKEN
-is set, requests must carry it in the X-GD-Token header. The server listens
-on 127.0.0.1 only.
+start/stop, autostart on/off, doctor with or without fix. API requests must
+carry the per-user token from ~/.gd/ui-token in the X-GD-Token header;
+GD_UI_TOKEN overrides that token. The server listens on 127.0.0.1 only and
+validates the Host/Origin headers.
 
 ## S3 endpoint (for projects)
 

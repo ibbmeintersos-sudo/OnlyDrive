@@ -3,15 +3,15 @@ package rclone
 
 import (
 	"archive/zip"
-	"encoding/base64"
 	"bytes"
-	"net"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -27,13 +27,13 @@ const downloadBase = "https://downloads.rclone.org"
 
 // Manager wraps the rclone binary path and the RC daemon connection.
 type Manager struct {
-	BinPath  string
-	rcURL    string
-	rcUser   string
-	rcPass   string
-	http     *http.Client
-	proc     *exec.Cmd
-	logPath  string
+	BinPath string
+	rcURL   string
+	rcUser  string
+	rcPass  string
+	http    *http.Client
+	proc    *exec.Cmd
+	logPath string
 }
 
 // New creates a Manager; it resolves the rclone binary but does not download.
@@ -409,16 +409,29 @@ func (m *Manager) List(ctx context.Context, remote, path string, recurse bool) (
 	return out.List, nil
 }
 
-// ReadFile downloads a file's bytes from a remote.
+// ReadFile downloads at most maxBytes from a remote. operations/getfile
+// supports count and base64, so the transfer itself is bounded (operations/cat
+// does not exist in rclone's RC API).
 func (m *Manager) ReadFile(ctx context.Context, remote, path string, maxBytes int64) ([]byte, error) {
-	in := map[string]any{"fs": remote, "remote": path}
-	var out struct {
-		Content string `json:"Content"`
+	if maxBytes <= 0 {
+		maxBytes = 2 << 20
 	}
-	if err := m.rcCall(ctx, "operations/cat", in, &out); err != nil {
+	in := map[string]any{
+		"fs":     remote,
+		"remote": path,
+		"count":  maxBytes,
+		"base64": true,
+	}
+	var out struct {
+		Result string `json:"result"`
+	}
+	if err := m.rcCall(ctx, "operations/getfile", in, &out); err != nil {
 		return nil, err
 	}
-	data := []byte(out.Content)
+	data, err := base64.StdEncoding.DecodeString(out.Result)
+	if err != nil {
+		return nil, fmt.Errorf("decode getfile result: %w", err)
+	}
 	if int64(len(data)) > maxBytes {
 		data = data[:maxBytes]
 	}
@@ -428,8 +441,8 @@ func (m *Manager) ReadFile(ctx context.Context, remote, path string, maxBytes in
 // WriteFile uploads bytes to a remote path.
 func (m *Manager) WriteFile(ctx context.Context, remote, path string, content []byte) error {
 	in := map[string]any{
-		"fs":        remote,
-		"remote":    path,
+		"fs":         remote,
+		"remote":     path,
 		"contentB64": base64Encode(content),
 	}
 	return m.rcCall(ctx, "operations/uploadfile", in, &map[string]any{})
@@ -569,5 +582,3 @@ func truncate(s string, n int) string {
 	}
 	return s[:n] + "…"
 }
-
-

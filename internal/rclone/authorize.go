@@ -66,8 +66,9 @@ func (m *Manager) AuthorizeDrive(ctx context.Context, clientID, clientSecret str
 	var stderrTail []string
 	done := make(chan error, 1)
 
-	// reader accumulates the stream, echoes it to the user, remembers a tail
-	// (stderr only) for error reporting and reacts to the URL / token patterns.
+	// reader accumulates the stream, remembers a tail (stderr only) for error
+	// reporting and reacts to the URL / token patterns. It deliberately does
+	// not echo the stream: rclone prints the OAuth token JSON to stdout.
 	reader := func(r io.Reader, isErr bool) {
 		buf := make([]byte, 4096)
 		var acc strings.Builder
@@ -76,7 +77,6 @@ func (m *Manager) AuthorizeDrive(ctx context.Context, clientID, clientSecret str
 			if n > 0 {
 				chunk := string(buf[:n])
 				acc.WriteString(chunk)
-				fmt.Print(chunk) // show progress to user
 				if isErr {
 					mu.Lock()
 					stderrTail = append(stderrTail, chunk)
@@ -87,16 +87,16 @@ func (m *Manager) AuthorizeDrive(ctx context.Context, clientID, clientSecret str
 				}
 				if url := extractURL(acc.String()); url != "" {
 					urlOnce.Do(func() {
-					fmt.Println()
-					fmt.Println("──────────────────────────────────────────────────────")
-					fmt.Println("  Opening your browser. If nothing happened, open this link manually:")
-					fmt.Println("  " + url)
-					fmt.Println("──────────────────────────────────────────────────────")
-					fmt.Println()
-					if e := openBrowser(url); e != nil {
-						fmt.Println("  could not open the browser automatically:", e)
-						fmt.Println("  → copy the link above into your browser and click Allow.")
-					}
+						fmt.Println()
+						fmt.Println("──────────────────────────────────────────────────────")
+						fmt.Println("  Opening your browser. If nothing happened, open this link manually:")
+						fmt.Println("  " + url)
+						fmt.Println("──────────────────────────────────────────────────────")
+						fmt.Println()
+						if e := openBrowser(url); e != nil {
+							fmt.Println("  could not open the browser automatically:", e)
+							fmt.Println("  → copy the link above into your browser and click Allow.")
+						}
 					})
 				}
 				if tok := extractTokenBlob(acc.String()); tok != "" && tokenJSON == "" {

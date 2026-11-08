@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OnlyDrive: Google Drive as a local disk, S3 endpoint and MCP server</title>
-<meta name="description" content="OnlyDrive (gd) mounts every Google account as a Windows disk, folds them into one storage pool, exposes an S3-compatible endpoint and drives AI agents through MCP. No Google Cloud keys.">
+<meta name="description" content="OnlyDrive (gd) mounts every Google account as a Windows disk, folds them into one storage pool, exposes an S3-compatible endpoint and drives AI agents through MCP. The default OAuth path needs no Google Cloud project.">
 <link rel="icon" href="img/logo.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -234,7 +234,7 @@
       <a href="#faq">FAQ</a>
     </nav>
     <span class="spacer"></span>
-    <a class="pill" href="https://github.com/yava-code/OnlyDrive">GitHub</a>
+    <a class="pill" href="https://github.com/ibbmeintersos-sudo/OnlyDrive">GitHub</a>
     <a class="pill primary" href="#install">Install</a>
   </div>
 </header>
@@ -243,18 +243,18 @@
   <section class="hero">
     <div class="wash" aria-hidden="true"></div>
     <div class="wrap">
-      <a class="tag" href="https://github.com/yava-code/OnlyDrive/releases/latest/download/OnlyDrive-windows-amd64.exe"><span class="dot" aria-hidden="true"></span> latest release · single Go binary</a>
+      <a class="tag" href="https://github.com/ibbmeintersos-sudo/OnlyDrive/releases/latest/download/OnlyDrive-windows-amd64.exe"><span class="dot" aria-hidden="true"></span> latest release · single Go binary</a>
       <h1>Every Google account, one honest pool of disks.</h1>
-      <p>OnlyDrive mounts each Google account as a real disk (drive letters on Windows, native mountpoints on macOS and Linux), folds them into one storage pool, exposes an S3-compatible endpoint on localhost, and gives AI agents file tools over MCP. Your regular Google subscription: no Google Cloud project, no API keys.</p>
+      <p>OnlyDrive mounts each Google account as a real disk (drive letters on Windows, native mountpoints on macOS and Linux), folds them into one storage pool, exposes an S3-compatible endpoint on localhost, and gives AI agents file tools over MCP. The default OAuth path uses rclone's shared client, so no Google Cloud project or API keys are required.</p>
       <div class="ctas">
         <a class="pill primary" href="#install">Install on Windows</a>
-        <a class="pill dark" href="https://github.com/yava-code/OnlyDrive">Read the source</a>
+        <a class="pill dark" href="https://github.com/ibbmeintersos-sudo/OnlyDrive">Read the source</a>
         <a class="pill" href="#proof">See it working</a>
       </div>
       <div class="copyline">
         <span class="dollar" aria-hidden="true">$</span>
-        <code id="install-cmd">irm https://raw.githubusercontent.com/yava-code/OnlyDrive/main/install/install.ps1 | iex</code>
-        <button id="copy-btn" type="button" data-copy="irm https://raw.githubusercontent.com/yava-code/OnlyDrive/main/install/install.ps1 | iex">Copy</button>
+        <code id="install-cmd">irm https://raw.githubusercontent.com/ibbmeintersos-sudo/OnlyDrive/main/install/install.ps1 | iex</code>
+        <button id="copy-btn" type="button" data-copy="irm https://raw.githubusercontent.com/ibbmeintersos-sudo/OnlyDrive/main/install/install.ps1 | iex">Copy</button>
       </div>
       <div class="platforms">Windows (WinFsp) <span class="sep">·</span> macOS build <span class="sep">·</span> Linux build</div>
     </div>
@@ -318,7 +318,7 @@
         <div class="card">
           <span class="tagline">Storage pool</span>
           <h3>One union over all accounts.</h3>
-          <p><code>gd serve union</code> folds every account into a single namespace. New files land on the drive that has room. With one account the pool repeats it, because rclone's union rejects a lone upstream.</p>
+          <p><code>gd serve union</code> folds every account into a single namespace. New files go to the upstream with the most free space (<code>create_policy = epmfs</code>); deletes and renames apply to every upstream (<code>action_policy = epall</code>). With one account the pool repeats it, because rclone's union rejects a lone upstream.</p>
         </div>
         <div class="card">
           <span class="tagline">S3 endpoint</span>
@@ -340,7 +340,7 @@
         <div class="card">
           <span class="tagline">Control panel</span>
           <h3>gd ui, the human layer.</h3>
-          <p>A localhost page on port 5590: accounts with quota meters, mount and remove buttons, daemon and S3 start/stop, autostart toggle, doctor with auto-fix. Set GD_UI_TOKEN to require an access token.</p>
+          <p>A localhost page on port 5590: accounts with quota meters, mount and remove buttons, daemon and S3 start/stop, autostart toggle, doctor with auto-fix. API calls require the per-user token in <code>~/.gd/ui-token</code>; set <code>GD_UI_TOKEN</code> to override it.</p>
         </div>
       </div>
     </div>
@@ -391,13 +391,13 @@
         <div class="card">
           <span class="tagline">1 · Windows</span>
           <h3>One line, then a wizard.</h3>
-          <pre>irm https://raw.githubusercontent.com/yava-code/OnlyDrive/main/install/install.ps1 | iex</pre>
+          <pre>irm https://raw.githubusercontent.com/ibbmeintersos-sudo/OnlyDrive/main/install/install.ps1 | iex</pre>
           <p>The installer drops gd.exe on your PATH and starts the guided setup: engine, Google sign-in (it asks how many accounts you want), disks, MCP, autostart. WinFsp install asks one UAC click.</p>
         </div>
         <div class="card">
           <span class="tagline">2 · From source</span>
           <h3>Go toolchain is enough.</h3>
-          <pre>git clone https://github.com/yava-code/OnlyDrive.git
+          <pre>git clone https://github.com/ibbmeintersos-sudo/OnlyDrive.git
 cd OnlyDrive
 go build -o gd.exe ./cmd/gd
 go build -o gd-ui.exe ./cmd/gd-gui</pre>
@@ -439,7 +439,7 @@ gd doctor         :: is everything ok?</pre>
       </details>
       <details>
         <summary>Where do the tokens live, and who can read them?</summary>
-        <p>In <code>~/.gd/rclone.conf</code>, next to gd's state in <code>~/.gd/gd.json</code>. The control panel binds to 127.0.0.1 only and is off by default until you run <code>gd ui</code>; set GD_UI_TOKEN to require a header token. Never commit or share the config: it is the keys to your drives.</p>
+        <p>In <code>~/.gd/rclone.conf</code>, next to gd's state in <code>~/.gd/gd.json</code>. The control panel binds to 127.0.0.1 only and is off by default until you run <code>gd ui</code>; API calls require the per-user token in <code>~/.gd/ui-token</code> (or <code>GD_UI_TOKEN</code>). Never commit or share the config: it is the keys to your drives.</p>
       </details>
     </div>
   </section>
@@ -452,9 +452,9 @@ gd doctor         :: is everything ok?</pre>
           <p>Free, open source, Apache-2.0. Windows, macOS and Linux builds ship in every release; <code>gd mount</code> gives drive letters on Windows and native mountpoints on macOS and Linux.</p>
         </div>
         <div class="act">
-          <a class="pill primary" href="https://github.com/yava-code/OnlyDrive/releases/latest/download/OnlyDrive-windows-amd64.exe">Download for Windows</a>
-          <a class="pill" href="https://github.com/yava-code/OnlyDrive/releases/latest/download/OnlyDrive-ui-windows-amd64.exe">Download the panel app</a>
-          <a class="pill dark" href="https://github.com/yava-code/OnlyDrive">View source</a>
+          <a class="pill primary" href="https://github.com/ibbmeintersos-sudo/OnlyDrive/releases/latest/download/OnlyDrive-windows-amd64.exe">Download for Windows</a>
+          <a class="pill" href="https://github.com/ibbmeintersos-sudo/OnlyDrive/releases/latest/download/OnlyDrive-ui-windows-amd64.exe">Download the panel app</a>
+          <a class="pill dark" href="https://github.com/ibbmeintersos-sudo/OnlyDrive">View source</a>
         </div>
       </div>
     </div>
@@ -465,7 +465,7 @@ gd doctor         :: is everything ok?</pre>
   <div class="wrap fbar">
     <span class="fbrand"><span class="led" aria-hidden="true"></span><img class="flogo" src="img/logo.png" alt="OnlyDrive"> <span class="fmeta">Apache-2.0 · <span id="landing-ver">latest</span></span></span>
     <span>daemon on 127.0.0.1:5572 · panel on 127.0.0.1:5590 · S3 on 127.0.0.1:9000</span>
-    <a href="https://github.com/yava-code/OnlyDrive">github.com/yava-code/OnlyDrive</a>
+    <a href="https://github.com/ibbmeintersos-sudo/OnlyDrive">github.com/ibbmeintersos-sudo/OnlyDrive</a>
   </div>
 </footer>
 
@@ -496,7 +496,7 @@ gd doctor         :: is everything ok?</pre>
 
   // Show the newest release tag in the hero badge and the footer; the static
   // "latest" placeholders above stand in when GitHub is unreachable.
-  fetch("https://api.github.com/repos/yava-code/OnlyDrive/releases/latest", { headers: { "Accept": "application/vnd.github+json" } })
+  fetch("https://api.github.com/repos/ibbmeintersos-sudo/OnlyDrive/releases/latest", { headers: { "Accept": "application/vnd.github+json" } })
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (rel) {
       if (!rel || !/^v\d/.test(rel.tag_name || "")) return;
